@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WriteBGT</title>
+    <link rel="stylesheet" href="https://cdn.quilljs.com/1.3.6/quill.snow.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+    <style>
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 5px solid #3498db;
+            width: 40px;
+            height: 40px;
+            animation: spin 2s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            color: #333;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #007aff;
+        }
+
+        #editor-container {
+            height: 300px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 10px;
+        }
+
+        button {
+            background-color: #007aff;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            margin: 10px 0;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #005ecb;
+        }
+
+        #gpt-output {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            width: calc(100% - 22px);
+        }
+
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        #folders-list li, #notes-list li {
+            padding: 15px;
+            background-color: #eaeaea;
+            border: 1px solid #ccc;
+            margin-top: 10px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background-color 0.3s, box-shadow 0.3s;
+        }
+
+        #folders-list li:hover, #notes-list li:hover {
+            background-color: #dcdcdc;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        #loading {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>WriteBGT</h1>
+
+    <div id="editor-container"></div>
+    <button id="process-btn">调用 GPT</button>
+    <div id="gpt-output"></div>
+
+    <input type="text" id="folder-name" placeholder="文件夹名">
+    <button id="create-folder">创建文件夹</button>
+    <button id="delete-folder">删除文件夹</button>
+    <button id="save-note">保存笔记</button>
+
+    <button id="view-folders-btn">查看文件夹</button>
+    <ul id="folders-list" style="display: none;"></ul>
+    <ul id="notes-list" style="display: none;"></ul>
+
+    <div id="loading">
+        <div class="loader"></div>
+    </div>
+
+    <script>
+        var quill = new Quill('#editor-container', {
+            theme: 'snow'
+        });
+
+        $(document).ready(function() {
+            // 调用 GPT 按钮事件
+            $('#process-btn').click(function() {
+                var selectedText = quill.getText(quill.getSelection());
+                if (selectedText) {
+                    $('#loading').show();
+                    $.ajax({
+                        url: '/process',
+                        type: 'POST',
+                        data: { 'selected_text': selectedText },
+                        success: function(response) {
+                            $('#gpt-output').text(response.gpt_response);
+                            $('#loading').hide();
+                        },
+                        error: function() {
+                            alert('Error processing request');
+                            $('#loading').hide();
+                        }
+                    });
+                } else {
+                    alert("请选择一些文本！");
+                }
+            });
+
+            // 创建文件夹
+            $('#create-folder').click(function() {
+                var folderName = $('#folder-name').val();
+                $.post('/create_folder', { folder_name: folderName }, function(response) {
+                    alert(response.message);
+                });
+            });
+
+            // 删除文件夹
+            $('#delete-folder').click(function() {
+                var folderName = $('#folder-name').val();
+                $.post('/delete_folder', { folder_name: folderName }, function(response) {
+                    alert(response.message);
+                });
+            });
+
+            // 保存笔记
+            $('#save-note').click(function() {
+                var folderName = $('#folder-name').val();
+                var noteContent = quill.getText();
+                $.post('/save_note', { folder_name: folderName, note_content: noteContent }, function(response) {
+                    alert(response.message);
+                    quill.setText(''); // 清空编辑器
+                });
+            });
+
+            // 查看/收回文件夹
+            $('#view-folders-btn').click(function() {
+                // 如果文件夹列表显示，则隐藏；如果隐藏，则显示
+                $('#folders-list').toggle();
+                $('#notes-list').hide(); // 收回笔记列表
+
+                if ($('#folders-list').is(':visible')) {
+                    $.get('/list_folders', function(response) {
+                        if (response.folders.length > 0) {
+                            $('#folders-list').empty(); // 清空列表
+                            response.folders.forEach(function(folder) {
+                                $('#folders-list').append('<li>' + folder + '</li>');
+                            });
+                        } else {
+                            alert('没有文件夹可显示');
+                        }
+                    });
+                }
+            });
+
+            // 查看指定文件夹的笔记
+            $(document).on('click', '#folders-list li', function() {
+                var folderName = $(this).text();
+                $.post('/list_notes', { folder_name: folderName }, function(response) {
+                    if (response.notes.length > 0) {
+                        $('#notes-list').empty().show(); // 清空并显示笔记列表
+                        response.notes.forEach(function(note) {
+                            $('#notes-list').append('<li data-folder="' + folderName + '">' + note + '</li>');
+                        });
+                    } else {
+                        alert('该文件夹中没有笔记');
+                    }
+                });
+            });
+
+            // 加载并显示指定笔记内容
+            $(document).on('click', '#notes-list li', function() {
+                var folderName = $(this).data('folder');
+                var noteName = $(this).text();
+                $.post('/get_note', { folder_name: folderName, note_name: noteName }, function(response) {
+                    if (response.content) {
+                        quill.setText(response.content); // 加载笔记内容到编辑器
+                    } else {
+                        alert(response.message);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
